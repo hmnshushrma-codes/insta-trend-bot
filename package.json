@@ -1,0 +1,21 @@
+{
+  "name": "insta-trend-bot",
+  "version": "1.0.0",
+"description": "AI-powered Instagram growth assistant on Telegram. Clone → Configure → Run.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "setup": "cp .env.example .env && echo '✅ .env created! Now edit it with your keys and run: npm start'"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@github.com-personal:hmnshushrma-codes/insta-trend-bot.git"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}
