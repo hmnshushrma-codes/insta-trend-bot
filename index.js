@@ -1,255 +1,77 @@
 // ============================================
 // 🤖 INSTA TREND AI — Your Instagram Growth Assistant
 // ============================================
+// Only needs: TELEGRAM_BOT_TOKEN + ANTHROPIC_API_KEY
+// Everything else is configured via chat!
+// ============================================
 
 require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
 
-// ============ LOAD CONFIG ============
-const CONFIG = {
-  telegramToken: process.env.TELEGRAM_BOT_TOKEN,
-  anthropicKey: process.env.ANTHROPIC_API_KEY,
-  niche: process.env.MY_NICHE || 'general',
-  creators: process.env.MY_FAVORITE_CREATORS || '',
-  audience: process.env.MY_AUDIENCE || 'general audience',
-  language: process.env.MY_LANGUAGE || 'english',
-  instagram: process.env.MY_INSTAGRAM || '',
-};
+// ============ LOAD API KEYS ============
+const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
 
-// ============ VALIDATE ============
-function validateConfig() {
-  const missing = [];
-  if (!CONFIG.telegramToken || CONFIG.telegramToken.includes('your_')) missing.push('TELEGRAM_BOT_TOKEN');
-  if (!CONFIG.anthropicKey || CONFIG.anthropicKey.includes('your_')) missing.push('ANTHROPIC_API_KEY');
-
-  if (missing.length > 0) {
-    console.log('\n🤖 INSTA TREND AI — Setup Required\n');
-    console.log('Missing keys:', missing.join(', '));
-    console.log('\n📋 Quick Setup:');
-    console.log('   1. cp .env.example .env');
-    console.log('   2. Edit .env with your keys');
-    console.log('   3. npm start\n');
-    console.log('📌 Get your keys:');
-    console.log('   Telegram: Message @BotFather → /newbot');
-    console.log('   Anthropic: https://console.anthropic.com\n');
-    process.exit(1);
-  }
+if (!TELEGRAM_TOKEN || TELEGRAM_TOKEN.includes('your_') || !ANTHROPIC_KEY || ANTHROPIC_KEY.includes('your_')) {
+  console.log('\n🤖 INSTA TREND AI — Setup Required\n');
+  console.log('1. cp .env.example .env');
+  console.log('2. Add your TELEGRAM_BOT_TOKEN and ANTHROPIC_API_KEY');
+  console.log('3. npm start\n');
+  console.log('That\'s it! The bot will ask users for their niche, creators, etc. via chat.\n');
+  process.exit(1);
 }
 
-validateConfig();
+// ============ USER PROFILES (saved to disk) ============
+const PROFILES_FILE = path.join(__dirname, 'profiles.json');
+let profiles = {};
 
-// ============ PERSONALIZED SYSTEM PROMPT ============
-function getSystemPrompt() {
-  let prompt = `You are an expert Instagram growth strategist and content advisor. You give actionable, specific advice — never generic fluff.
-
-📌 CREATOR PROFILE:
-- Niche: ${CONFIG.niche}
-- Target Audience: ${CONFIG.audience}
-- Content Language: ${CONFIG.language}`;
-
-  if (CONFIG.creators) {
-    prompt += `\n- Creators they admire: ${CONFIG.creators}`;
-  }
-  if (CONFIG.instagram) {
-    prompt += `\n- Their handle: ${CONFIG.instagram}`;
-  }
-
-  prompt += `
-
-📋 RULES:
-- Every suggestion must be specific to their "${CONFIG.niche}" niche
-- Reference strategies used by creators like ${CONFIG.creators || 'top creators in this niche'}
-- Content ideas should work for their audience: ${CONFIG.audience}
-- Write captions/hooks in ${CONFIG.language} language
-- Use emojis for Telegram readability
-- Format for Telegram Markdown (*bold*, _italic_)
-- Think about the Instagram algorithm: saves > shares > comments > likes
-- Give actionable steps, not theory
-- If relevant, suggest trending audio/format ideas`;
-
-  return prompt;
+function loadProfiles() {
+  try {
+    if (fs.existsSync(PROFILES_FILE)) {
+      profiles = JSON.parse(fs.readFileSync(PROFILES_FILE, 'utf8'));
+      console.log('   📁 Loaded ' + Object.keys(profiles).length + ' user profiles');
+    }
+  } catch (e) { profiles = {}; }
 }
 
-const SYS = getSystemPrompt();
+function saveProfiles() {
+  try { fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2)); } catch (e) {}
+}
 
-// ============ PROMPTS ============
-const prompts = {
-  trends: (niche) => `${SYS}
+function getProfile(chatId) {
+  return profiles[chatId] || null;
+}
 
-Give 8 trending content ideas for the "${niche || CONFIG.niche}" niche on Instagram RIGHT NOW (March 2026).
+function setProfile(chatId, data) {
+  profiles[chatId] = { ...profiles[chatId], ...data, updatedAt: new Date().toISOString() };
+  saveProfiles();
+}
 
-For each idea:
-1️⃣ *Content Idea* — specific, not vague
-2️⃣ *Format* — Reel / Carousel / Post
-3️⃣ *Hook* — first 3 seconds or first line
-4️⃣ *Why it works* — algorithm + audience psychology
-5️⃣ *Engagement potential* — 🔥 high / ⚡ medium / 💡 safe bet
-6️⃣ *Reference* — which creator does something similar
+loadProfiles();
 
-Make it specific to ${CONFIG.audience}. Write hooks in ${CONFIG.language}.`,
-
-  hashtags: (topic) => `${SYS}
-
-Generate 30 Instagram hashtags for: "${topic}" in the ${CONFIG.niche} niche.
-
-Organize:
-🔥 *High Volume (1M+)* — 10 hashtags for maximum reach
-⚡ *Medium (100K-1M)* — 10 for discovery page
-🎯 *Niche (<100K)* — 10 for targeted ${CONFIG.audience}
-
-Then give 3 copy-paste ready sets of 10 hashtags each:
-- Set 1: For Reels
-- Set 2: For Carousels/Posts
-- Set 3: For Stories/Engagement posts
-
-Format with # — make them instantly copyable.`,
-
-  caption: (idea) => `${SYS}
-
-Write 3 Instagram captions for: "${idea}"
-
-All captions should be in *${CONFIG.language}* language, targeting ${CONFIG.audience}.
-
-*Caption 1 — Short & Punchy* (2-3 lines)
-*Caption 2 — Storytelling* (5-7 lines)
-*Caption 3 — Long Value Post* (10+ lines)
-
-Each caption needs:
-- Strong hook (first line)
-- Body with personality
-- CTA (save/share/comment/follow)
-- 5 relevant hashtags
-- Emoji usage that fits the vibe`,
-
-  hook: (topic) => `${SYS}
-
-Generate 10 scroll-stopping hooks for Instagram Reels about: "${topic}"
-
-Write hooks in *${CONFIG.language}* language.
-
-For each:
-🎣 *Hook* — exact words for first 3 seconds
-📝 *Text Overlay* — what to show on screen
-🎬 *Visual* — what to film/show
-💡 *Psychology* — why it stops the scroll
-
-Mix:
-- 2 Controversy/Hot takes
-- 2 Secret/Hack reveals
-- 2 Storytelling ("I did X and this happened...")
-- 2 Relatable/Funny
-- 2 Educational/Value bombs
-
-Target audience: ${CONFIG.audience}`,
-
-  calendar: (niche) => `${SYS}
-
-Create a 7-day Instagram content calendar for "${niche || CONFIG.niche}" niche.
-
-For each day:
-📅 *Day & Theme*
-📱 *Format:* Reel / Carousel / Story / Post
-💡 *Content Idea* — specific topic (not vague)
-🎣 *Hook* — in ${CONFIG.language}
-⏰ *Best Time to Post* (IST)
-#️⃣ *5 Hashtags*
-📊 *Goal:* Reach / Saves / Comments / Shares
-
-Strategic mix:
-- Mon: Educational Reel (reach)
-- Tue: Carousel (saves)
-- Wed: Trending/Relatable Reel (shares)
-- Thu: Story series (engagement)
-- Fri: Value Post or Carousel (saves)
-- Sat: Fun/Behind-the-scenes Reel (reach)
-- Sun: Community/Q&A post (comments)
-
-Make it executable — creator should be able to start filming immediately.`,
-
-  bestTimes: (niche) => `${SYS}
-
-Best posting times for "${niche || CONFIG.niche}" targeting ${CONFIG.audience}:
-
-⏰ *Daily Schedule (IST):*
-Give specific times for each day — Mon through Sun.
-
-📱 *By Format:*
-- Reels: best times
-- Carousels: best times
-- Stories: best posting windows
-- Lives: when to go live
-
-🌍 *If targeting global audience:*
-- US audience times
-- UK audience times
-
-🚫 *Worst times to post*
-
-💡 *Pro Tips:*
-- How to use Instagram Insights to find YOUR best times
-- The 30-minute rule after posting
-- Story timing for maximum views`,
-
-  tips: (niche) => `${SYS}
-
-10 actionable Instagram growth tips for "${niche || CONFIG.niche}" creators targeting ${CONFIG.audience}.
-
-For each tip:
-💡 *The Tip* — specific and actionable
-📈 *Impact* — what this does for growth
-🛠️ *Steps* — exactly how to do it
-⏱️ *Effort:* Quick Win / Medium / Long Game
-🔍 *Example* — reference how ${CONFIG.creators || 'top creators'} use this
-
-Cover:
-- 3 Algorithm hacks
-- 2 Content strategies
-- 2 Engagement tactics
-- 1 Monetization angle
-- 1 Profile optimization
-- 1 Collaboration strategy
-
-NO generic advice. Everything must be specific to ${CONFIG.niche}.`,
-
-  report: () => `${SYS}
-
-Generate a weekly Instagram growth report and strategy for a "${CONFIG.niche}" creator.
-
-📊 *NICHE ANALYSIS:*
-- Current state of ${CONFIG.niche} on Instagram
-- What's working right now in this space
-- What's oversaturated / to avoid
-- Emerging sub-niches or angles
-
-👥 *AUDIENCE INSIGHTS:*
-- What ${CONFIG.audience} engages with most
-- Content preferences (format, length, tone)
-- Peak activity patterns
-
-🔥 *THIS WEEK'S STRATEGY:*
-- 3 must-try content ideas
-- 1 trending format to jump on
-- 1 collaboration idea
-- Best performing content type prediction
-
-📈 *CREATOR ANALYSIS:*
-Analyze what ${CONFIG.creators || 'top creators in ' + CONFIG.niche} are doing:
-- Their recent winning content patterns
-- What you can learn from them
-- How to differentiate from them
-
-🎯 *ACTION ITEMS:*
-Give 5 specific things to do THIS WEEK, prioritized by impact.
-
-Make this feel like a personalized consulting report.`,
-
-  freeChat: (q) => `${SYS}
-
-Creator asks: "${q}"
-
-Give a helpful, specific, actionable response personalized to their ${CONFIG.niche} niche and ${CONFIG.audience} audience.
-
-Write in a conversational tone. If relevant, suggest commands:
-/trends, /hashtags, /caption, /hook, /calendar, /besttimes, /tips, /report`,
+// ============ ONBOARDING FLOW ============
+const SETUP_STEPS = {
+  niche: {
+    question: '📌 *What\'s your Instagram niche?*\n\nBe specific! The more specific, the better my advice.\n\n_Examples:_\n• fitness for working moms\n• street food reviews\n• tech gadgets under ₹5000\n• minimal home decor\n• personal finance for 20s\n\nJust type your niche:',
+    field: 'niche',
+    next: 'creators',
+  },
+  creators: {
+    question: '⭐ *Which creators do you admire?*\n\nShare 2-5 Instagram handles of creators in your niche whose strategy you want to learn from.\n\n_Example:_ @beerbiceps, @ranveerallahbadia, @tanmaybhat\n\nType the handles (comma separated):',
+    field: 'creators',
+    next: 'audience',
+  },
+  audience: {
+    question: '👥 *Who\'s your target audience?*\n\nDescribe who you\'re creating content for.\n\n_Examples:_\n• 18-25 year old Indian men into fitness\n• women entrepreneurs in tier 2 cities\n• college students interested in tech\n• working professionals who want to cook\n\nDescribe your audience:',
+    field: 'audience',
+    next: 'language',
+  },
+  language: {
+    question: '🗣️ *What language do you create content in?*\n\nThis helps me write captions and hooks in your style.\n\n1️⃣ English\n2️⃣ Hindi\n3️⃣ Hinglish (mix)\n4️⃣ Tamil\n5️⃣ Telugu\n6️⃣ Other\n\nType your language:',
+    field: 'language',
+    next: 'done',
+  },
 };
 
 // ============ TELEGRAM POLLING ============
@@ -259,12 +81,10 @@ async function poll() {
   while (true) {
     try {
       const res = await fetch(
-        `https://api.telegram.org/bot${CONFIG.telegramToken}/getUpdates?offset=${offset}&timeout=30`
+        `https://api.telegram.org/bot${TELEGRAM_TOKEN}/getUpdates?offset=${offset}&timeout=30`
       );
       const data = await res.json();
-
-if (data.ok && data.result.length > 0) {
-  console.log('Got', data.result.length, 'updates');
+      if (data.ok && data.result.length > 0) {
         for (const update of data.result) {
           offset = update.update_id + 1;
           handleUpdate(update).catch(err => console.error('Error:', err.message));
@@ -285,40 +105,138 @@ async function handleUpdate(update) {
   const chatId = msg.chat.id;
   const text = msg.text.trim();
   const name = msg.from?.first_name || 'Creator';
+  const profile = getProfile(chatId);
 
   await sendAction(chatId, 'typing');
 
-  if (text === '/start') return send(chatId, welcomeMsg(name));
-  if (text === '/help') return send(chatId, helpMsg());
+  // /start — always works
+  if (text === '/start') {
+    if (profile && profile.niche) {
+      return send(chatId, welcomeBack(name, profile));
+    }
+    // Start onboarding
+    setProfile(chatId, { name, setupStep: 'niche' });
+    await send(chatId, `🔥 *Hey ${name}! Welcome to Insta Trend AI*\n\nI'm your AI-powered Instagram growth assistant. Let me personalize everything for you.\n\nQuick setup — just 4 questions! 👇`);
+    return send(chatId, SETUP_STEPS.niche.question);
+  }
+
+  // /setup — redo onboarding
+  if (text === '/setup') {
+    setProfile(chatId, { name, setupStep: 'niche' });
+    return send(chatId, SETUP_STEPS.niche.question);
+  }
+
+  // /profile — show current profile
+  if (text === '/profile') {
+    if (!profile || !profile.niche) return send(chatId, '⚠️ No profile yet. Send /start to set up!');
+    return send(chatId, profileCard(profile));
+  }
+
+  // /help
+  if (text === '/help') return send(chatId, helpMsg(profile));
+
+  // Handle onboarding answers
+  if (profile && profile.setupStep && SETUP_STEPS[profile.setupStep]) {
+    const step = SETUP_STEPS[profile.setupStep];
+    setProfile(chatId, { [step.field]: text });
+
+    if (step.next === 'done') {
+      // Onboarding complete
+      setProfile(chatId, { setupStep: null });
+      const p = getProfile(chatId);
+      return send(chatId, `✅ *All set! Here\'s your profile:*\n\n` + profileCard(p) + `\n\n🚀 *You\'re ready!* Try these:\n• /trends — trending ideas for ${p.niche}\n• /report — full weekly strategy\n• /caption \`your idea\` — viral captions\n\nOr just type any question about Instagram growth!`);
+    }
+
+    // Next step
+    setProfile(chatId, { setupStep: step.next });
+    return send(chatId, `✅ Got it!\n\n` + SETUP_STEPS[step.next].question);
+  }
+
+  // Not set up yet
+  if (!profile || !profile.niche) {
+    setProfile(chatId, { name, setupStep: 'niche' });
+    await send(chatId, '👋 Looks like we haven\'t met! Let me set up your profile.\n\nQuick setup — 4 questions:');
+    return send(chatId, SETUP_STEPS.niche.question);
+  }
+
+  // ============ COMMANDS (only work after setup) ============
 
   if (text === '/report') {
     await send(chatId, '📊 Generating your personalized weekly report...');
     await sendAction(chatId, 'typing');
-    return send(chatId, await askAI(prompts.report()));
+    return send(chatId, await askAI(buildPrompt('report', null, profile)));
   }
 
-  const commands = {
-    '/trends': prompts.trends,
-    '/hashtags': prompts.hashtags,
-    '/caption': prompts.caption,
-    '/hook': prompts.hook,
-    '/calendar': prompts.calendar,
-    '/besttimes': prompts.bestTimes,
-    '/tips': prompts.tips,
+  const cmds = {
+    '/trends': 'trends',
+    '/hashtags': 'hashtags',
+    '/caption': 'caption',
+    '/hook': 'hook',
+    '/calendar': 'calendar',
+    '/besttimes': 'bestTimes',
+    '/tips': 'tips',
   };
 
-  for (const [cmd, fn] of Object.entries(commands)) {
+  for (const [cmd, key] of Object.entries(cmds)) {
     if (text.startsWith(cmd)) {
       const arg = text.replace(cmd, '').trim();
-      if (!arg && ['/hashtags', '/caption', '/hook'].includes(cmd)) {
+      if (!arg && ['hashtags', 'caption', 'hook'].includes(key)) {
         return send(chatId, `💡 Usage: \`${cmd} your topic here\``);
       }
-      return send(chatId, await askAI(fn(arg)));
+      return send(chatId, await askAI(buildPrompt(key, arg, profile)));
     }
   }
 
   // Free text
-  return send(chatId, await askAI(prompts.freeChat(text)));
+  return send(chatId, await askAI(buildPrompt('freeChat', text, profile)));
+}
+
+// ============ BUILD PERSONALIZED PROMPTS ============
+function buildSystemPrompt(profile) {
+  return `You are an expert Instagram growth strategist and content advisor. You give actionable, specific advice — never generic fluff.
+
+📌 CREATOR PROFILE:
+- Niche: ${profile.niche}
+- Target Audience: ${profile.audience || 'general'}
+- Content Language: ${profile.language || 'english'}
+- Creators they admire: ${profile.creators || 'top creators'}
+
+📋 RULES:
+- Every suggestion must be specific to "${profile.niche}" niche
+- Reference strategies used by ${profile.creators || 'top creators in this niche'}
+- Content ideas for audience: ${profile.audience || 'general'}
+- Write captions/hooks in ${profile.language || 'english'}
+- Use emojis for Telegram readability
+- Format for Telegram Markdown (*bold*, _italic_)
+- Algorithm priority: saves > shares > comments > likes
+- Give actionable steps, not theory`;
+}
+
+function buildPrompt(type, arg, profile) {
+  const SYS = buildSystemPrompt(profile);
+  const n = arg || profile.niche;
+
+  const templates = {
+    trends: `${SYS}\n\nGive 8 trending content ideas for "${n}" niche on Instagram RIGHT NOW (March 2026).\n\nFor each:\n1️⃣ *Content Idea* — specific\n2️⃣ *Format* — Reel/Carousel/Post\n3️⃣ *Hook* — first 3 seconds in ${profile.language || 'english'}\n4️⃣ *Why it works*\n5️⃣ *Engagement potential* — 🔥/⚡/💡\n6️⃣ *Reference* — similar creator\n\nMake it specific to ${profile.audience || 'general audience'}.`,
+
+    hashtags: `${SYS}\n\nGenerate 30 Instagram hashtags for: "${arg}" in ${profile.niche} niche.\n\n🔥 *High Volume (1M+)* — 10 hashtags\n⚡ *Medium (100K-1M)* — 10 hashtags\n🎯 *Niche (<100K)* — 10 hashtags\n\nPlus 3 copy-paste sets of 10 each:\n- Set 1: Reels\n- Set 2: Carousels\n- Set 3: Stories\n\nFormat with #.`,
+
+    caption: `${SYS}\n\nWrite 3 Instagram captions for: "${arg}" in *${profile.language || 'english'}*\n\n*Caption 1 — Short* (2-3 lines)\n*Caption 2 — Story* (5-7 lines)\n*Caption 3 — Long Value* (10+ lines)\n\nEach needs: hook, body, CTA, 5 hashtags, emojis.`,
+
+    hook: `${SYS}\n\nGenerate 10 scroll-stopping Reel hooks for: "${arg}" in *${profile.language || 'english'}*\n\nFor each:\n🎣 *Hook* — exact words\n📝 *Text Overlay*\n🎬 *Visual*\n💡 *Why it works*\n\nMix: 2 controversy, 2 hacks, 2 story, 2 relatable, 2 educational.`,
+
+    calendar: `${SYS}\n\n7-day Instagram content calendar for "${n}" niche.\n\nPer day:\n📅 *Day & Theme*\n📱 *Format*\n💡 *Content Idea*\n🎣 *Hook* in ${profile.language || 'english'}\n⏰ *Post Time (IST)*\n#️⃣ *5 Hashtags*\n📊 *Goal*\n\nMix: 3 Reels, 2 Carousels, 1 Story, 1 Community post.`,
+
+    bestTimes: `${SYS}\n\nBest posting times for "${n}" targeting ${profile.audience || 'general'}.\n\n⏰ Daily schedule (IST) Mon-Sun\n📱 By format: Reels/Carousels/Stories\n🌍 Global audience times\n🚫 Worst times\n💡 How to find YOUR best times`,
+
+    tips: `${SYS}\n\n10 actionable growth tips for "${n}" creators targeting ${profile.audience || 'general'}.\n\nPer tip:\n💡 *Tip*\n📈 *Impact*\n🛠️ *Steps*\n⏱️ *Effort:* Quick Win/Medium/Long\n🔍 *Example* from ${profile.creators || 'top creators'}\n\n3 algorithm hacks, 2 content, 2 engagement, 1 monetization, 1 profile, 1 collab.`,
+
+    report: `${SYS}\n\nGenerate a weekly Instagram growth report for "${profile.niche}" creator.\n\n📊 *NICHE ANALYSIS:* What's working, what's oversaturated, emerging angles\n👥 *AUDIENCE INSIGHTS:* What ${profile.audience || 'the audience'} engages with\n🔥 *THIS WEEK:* 3 must-try ideas, 1 trending format, 1 collab idea\n📈 *CREATOR ANALYSIS:* What ${profile.creators || 'top creators'} are doing, what to learn, how to differentiate\n🎯 *ACTION ITEMS:* 5 specific things to do THIS WEEK\n\nMake it feel like a personalized consulting report.`,
+
+    freeChat: `${SYS}\n\nCreator asks: "${arg}"\n\nGive helpful, specific, actionable response for ${profile.niche} niche. Suggest commands where useful: /trends /hashtags /caption /hook /calendar /besttimes /tips /report`,
+  };
+
+  return templates[type] || templates.freeChat;
 }
 
 // ============ AI ============
@@ -328,7 +246,7 @@ async function askAI(prompt) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': CONFIG.anthropicKey,
+        'x-api-key': ANTHROPIC_KEY,
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
@@ -350,28 +268,25 @@ async function send(chatId, text) {
   const chunks = splitMsg(text);
   for (const chunk of chunks) {
     try {
-      const res = await fetch(`https://api.telegram.org/bot${CONFIG.telegramToken}/sendMessage`, {
+      const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chat_id: chatId, text: chunk, parse_mode: 'Markdown', disable_web_page_preview: true }),
       });
       const data = await res.json();
-      // If Markdown fails, retry plain
       if (!data.ok && data.description && data.description.includes('parse')) {
-        await fetch(`https://api.telegram.org/bot${CONFIG.telegramToken}/sendMessage`, {
+        await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ chat_id: chatId, text: chunk }),
         });
       }
-    } catch (err) {
-      console.error('Send error:', err.message);
-    }
+    } catch (err) { console.error('Send error:', err.message); }
   }
 }
 
 async function sendAction(chatId, action) {
-  await fetch(`https://api.telegram.org/bot${CONFIG.telegramToken}/sendChatAction`, {
+  await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendChatAction`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ chat_id: chatId, action }),
@@ -393,56 +308,31 @@ function splitMsg(text) {
   return chunks;
 }
 
-// ============ WELCOME ============
-function welcomeMsg(name) {
-  return `🔥 *Hey ${name}! Welcome to Insta Trend AI*
-
-I'm your personal Instagram growth assistant, configured for *${CONFIG.niche}* niche.
-
-*Your Profile:*
-📌 Niche: ${CONFIG.niche}
-👥 Audience: ${CONFIG.audience}
-🗣️ Language: ${CONFIG.language}
-${CONFIG.creators ? '⭐ Learning from: ' + CONFIG.creators : ''}
-
-*Commands:*
-📈 /trends — Trending ideas for ${CONFIG.niche}
-#️⃣ /hashtags \`[topic]\` — 30 optimized hashtags
-✍️ /caption \`[idea]\` — 3 viral captions in ${CONFIG.language}
-🎣 /hook \`[topic]\` — 10 scroll-stopping hooks
-📅 /calendar — 7-day content plan
-⏰ /besttimes — When to post
-💡 /tips — Growth hacks for ${CONFIG.niche}
-📊 /report — Weekly strategy report
-
-Or just *type any question!*
-
-🚀 *Try:* \`/trends\` or \`/report\``;
+// ============ MESSAGE TEMPLATES ============
+function profileCard(p) {
+  let card = `📌 *Niche:* ${p.niche}`;
+  if (p.creators) card += `\n⭐ *Creators:* ${p.creators}`;
+  if (p.audience) card += `\n👥 *Audience:* ${p.audience}`;
+  if (p.language) card += `\n🗣️ *Language:* ${p.language}`;
+  card += `\n\n_Send /setup to change your profile_`;
+  return card;
 }
 
-function helpMsg() {
-  return `🤖 *Insta Trend AI — Commands*
+function welcomeBack(name, p) {
+  return `👋 *Welcome back, ${name}!*\n\n` + profileCard(p) + `\n\n*Commands:*\n📈 /trends — Trending ideas for ${p.niche}\n#️⃣ /hashtags \`[topic]\` — 30 hashtags\n✍️ /caption \`[idea]\` — 3 viral captions\n🎣 /hook \`[topic]\` — Reel hooks\n📅 /calendar — 7-day plan\n⏰ /besttimes — When to post\n💡 /tips — Growth hacks\n📊 /report — Weekly strategy\n⚙️ /setup — Change profile\n\nOr just *type any question!*`;
+}
 
-📈 /trends \`[niche]\` — Trending ideas (default: ${CONFIG.niche})
-#️⃣ /hashtags \`[topic]\` — 30 hashtags
-✍️ /caption \`[idea]\` — 3 caption styles
-🎣 /hook \`[topic]\` — 10 reel hooks
-📅 /calendar \`[niche]\` — Week plan
-⏰ /besttimes — Posting schedule
-💡 /tips — Growth strategies
-📊 /report — Full weekly strategy report
-
-💬 Or *type anything* — I know your niche is *${CONFIG.niche}*`;
+function helpMsg(p) {
+  const n = p && p.niche ? p.niche : 'your niche';
+  return `🤖 *Insta Trend AI — Commands*\n\n📈 /trends — Trending ideas for ${n}\n#️⃣ /hashtags \`[topic]\` — 30 hashtags\n✍️ /caption \`[idea]\` — 3 caption styles\n🎣 /hook \`[topic]\` — 10 reel hooks\n📅 /calendar — Week plan\n⏰ /besttimes — Posting schedule\n💡 /tips — Growth strategies\n📊 /report — Full weekly report\n⚙️ /setup — Change your profile\n👤 /profile — View your profile\n\n💬 Or *type anything!*`;
 }
 
 // ============ START ============
 console.log('');
 console.log('🤖 Insta Trend AI is running!');
 console.log('');
-console.log('   📌 Niche:    ' + CONFIG.niche);
-console.log('   👥 Audience: ' + CONFIG.audience);
-console.log('   🗣️  Language: ' + CONFIG.language);
-if (CONFIG.creators) console.log('   ⭐ Creators: ' + CONFIG.creators);
+console.log('   Bot asks users for niche, creators, audience via chat');
+console.log('   Profiles saved to profiles.json');
 console.log('');
 console.log('   Open your bot on Telegram and send /start');
 console.log('   Press Ctrl+C to stop');
